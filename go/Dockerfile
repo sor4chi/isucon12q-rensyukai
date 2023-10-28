@@ -23,4 +23,7 @@ ENV GOCACHE=/home/isucon/tmp/go/.cache
 RUN go install github.com/tkuchiki/alp/cmd/alp@latest
 RUN go install github.com/tkuchiki/slp/cmd/slp@latest
 
+RUN cp /home/isucon/tmp/go/bin/alp /home/isucon/webapp/go/bin/alp
+RUN cp /home/isucon/tmp/go/bin/slp /home/isucon/webapp/go/bin/slp
+
 CMD ["go", "run", "./cmd/isuports/main.go"]
