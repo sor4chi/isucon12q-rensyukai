@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/gofrs/flock"
 	"github.com/jmoiron/sqlx"
 	"github.com/kaz/pprotein/integration/echov4"
 	"github.com/labstack/echo/v4"
@@ -435,21 +434,32 @@ type PlayerScoreRow struct {
 	UpdatedAt     int64  `db:"updated_at"`
 }
 
-// 排他ロックのためのファイル名を生成する
-func lockFilePath(id int64) string {
-	tenantDBDir := getEnv("ISUCON_TENANT_DB_DIR", "../tenant_db")
-	return filepath.Join(tenantDBDir, fmt.Sprintf("%d.lock", id))
+var lockMap = map[int64]*sync.Mutex{}
+
+type Locker struct {
+	id int64
+}
+
+func NewLocker(id int64) Locker {
+	return Locker{id: id}
+}
+
+func (l *Locker) Lock() {
+	lockMap[l.id].Lock()
+}
+
+func (l *Locker) Close() {
+	lockMap[l.id].Unlock()
 }
 
 // 排他ロックする
-func flockByTenantID(tenantID int64) (io.Closer, error) {
-	p := lockFilePath(tenantID)
-
-	fl := flock.New(p)
-	if err := fl.Lock(); err != nil {
-		return nil, fmt.Errorf("error flock.Lock: path=%s, %w", p, err)
+func flockByTenantID(tenantID int64) (Locker, error) {
+	if _, ok := lockMap[tenantID]; !ok {
+		lockMap[tenantID] = &sync.Mutex{}
 	}
-	return fl, nil
+	l := NewLocker(tenantID)
+	l.Lock()
+	return l, nil
 }
 
 type TenantsAddHandlerResult struct {
