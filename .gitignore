@@ -1,0 +1,11 @@
+sqlite-trace.log
+docker-compose-*
+!docker-compose-go.yml
+go/data
+java
+node
+php
+ruby
+perl
+python
+rust
