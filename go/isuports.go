@@ -432,6 +432,21 @@ func retrieveCompetition(ctx context.Context, tenantDB dbOrTx, id string) (*Comp
 	return &c, nil
 }
 
+func retrieveCompetitionBulk(ctx context.Context, tenantDB dbOrTx, ids []string) ([]CompetitionRow, error) {
+	if len(ids) == 0 {
+		return []CompetitionRow{}, nil
+	}
+	query, args, err := sqlx.In("SELECT * FROM competition WHERE id IN (?)", ids)
+	if err != nil {
+		return nil, fmt.Errorf("error sqlx.In: %w", err)
+	}
+	var cs []CompetitionRow
+	if err := tenantDB.SelectContext(ctx, &cs, query, args...); err != nil {
+		return nil, fmt.Errorf("error Select competition: ids=%v, %w", ids, err)
+	}
+	return cs, nil
+}
+
 type PlayerScoreRow struct {
 	TenantID      int64  `db:"tenant_id"`
 	ID            string `db:"id"`
@@ -1286,13 +1301,23 @@ func playerHandler(c echo.Context) error {
 	}
 
 	psds := make([]PlayerScoreDetail, 0, len(pss))
+	psids := make([]string, 0, len(pss))
+
 	for _, ps := range pss {
-		comp, err := retrieveCompetition(ctx, tenantDB, ps.CompetitionID)
-		if err != nil {
-			return fmt.Errorf("error retrieveCompetition: %w", err)
-		}
+		psids = append(psids, ps.CompetitionID)
+	}
+
+	comps, err := retrieveCompetitionBulk(ctx, tenantDB, psids)
+	if err != nil {
+		return fmt.Errorf("error retrieveCompetitionBulk: %w", err)
+	}
+	compMap := make(map[string]CompetitionRow, len(comps))
+	for _, comp := range comps {
+		compMap[comp.ID] = comp
+	}
+	for _, ps := range pss {
 		psds = append(psds, PlayerScoreDetail{
-			CompetitionTitle: comp.Title,
+			CompetitionTitle: compMap[ps.CompetitionID].Title,
 			Score:            ps.Score,
 		})
 	}
