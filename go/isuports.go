@@ -94,6 +94,7 @@ func connectToTenantDB(id int64) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open tenant DB: %w", err)
 	}
+	addIndexToTenantDB(db)
 	return db, nil
 }
 
@@ -1643,6 +1644,17 @@ type InitializeHandlerResult struct {
 	Lang string `json:"lang"`
 }
 
+func addIndexToTenantDB(db *sqlx.DB) {
+	if _, err := db.Exec("CREATE INDEX tenant_id_created_at_idx ON competition (tenant_id, created_at)"); err != nil {
+		log.Printf("error ALTER TABLE competition: %s", err)
+		return
+	}
+	if _, err := db.Exec("CREATE INDEX player_score_tenant_id_competition_id_player_id_row_num_idx ON player_score (tenant_id, competition_id, player_id, row_num DESC)"); err != nil {
+		log.Printf("error ALTER TABLE player_score: %s", err)
+		return
+	}
+}
+
 // ベンチマーカー向けAPI
 // POST /initialize
 // ベンチマーカーが起動したときに最初に呼ぶ
@@ -1670,14 +1682,7 @@ func initializeHandler(c echo.Context) error {
 				return
 			}
 			defer db.Close()
-			if _, err := db.Exec("CREATE INDEX tenant_id_created_at_idx ON competition (tenant_id, created_at)"); err != nil {
-				log.Printf("error ALTER TABLE competition: %s", err)
-				return
-			}
-			if _, err := db.Exec("CREATE INDEX player_score_tenant_id_competition_id_player_id_row_num_idx ON player_score (tenant_id, competition_id, player_id, row_num DESC)"); err != nil {
-				log.Printf("error ALTER TABLE player_score: %s", err)
-				return
-			}
+			addIndexToTenantDB(db)
 		}(tenantDB)
 	}
 
