@@ -7,6 +7,8 @@ services:
       ISUCON_DB_USER: isucon
       ISUCON_DB_PASSWORD: isucon
       ISUCON_DB_NAME: isuports
+      PPROTEIN_HTTPLOG: /home/isucon/webapp/logs/access.log
+      PPROTEIN_SLOWLOG: /home/isucon/webapp/logs/slow.log
     network_mode: host
     volumes:
       - /home/isucon/webapp/tenant_db:/home/isucon/webapp/tenant_db
@@ -14,4 +16,6 @@ services:
       - /home/isucon/webapp/public.pem:/home/isucon/webapp/public.pem:ro
       - /home/isucon/initial_data:/home/isucon/initial_data
       - /home/isucon/tmp:/home/isucon/tmp
+      - /var/log/nginx/access.log:/home/isucon/webapp/logs/access.log:ro
+      - /var/log/mysql/mysql-slow.log:/home/isucon/webapp/logs/slow.log:ro
     init: true
