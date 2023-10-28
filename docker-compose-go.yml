@@ -19,3 +19,4 @@ services:
       - /var/log/nginx/access.log:/home/isucon/webapp/logs/access.log:ro
       - /var/log/mysql/mysql-slow.log:/home/isucon/webapp/logs/slow.log:ro
     init: true
+    command: sh -c "go run ./cmd/isuports/main.go"
