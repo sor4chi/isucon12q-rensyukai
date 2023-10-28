@@ -1188,8 +1188,6 @@ func competitionScoreHandler(c echo.Context) error {
 		return fmt.Errorf("error Insert player_score")
 	}
 
-	delete(competitionRankingCache, getCompetitionRankingCacheKey(v.tenantID, competitionID))
-
 	return c.JSON(http.StatusOK, SuccessResult{
 		Status: true,
 		Data:   ScoreHandlerResult{Rows: int64(len(playerScoreRows))},
@@ -1376,12 +1374,6 @@ type CompetitionRankingHandlerResult struct {
 	Ranks       []CompetitionRank `json:"ranks"`
 }
 
-var competitionRankingCache map[string]map[int64]SuccessResult = make(map[string]map[int64]SuccessResult)
-
-func getCompetitionRankingCacheKey(tenantID int64, competitionID string) string {
-	return fmt.Sprintf("competition_ranking_%d_%s", tenantID, competitionID)
-}
-
 // 参加者向けAPI
 // GET /api/player/competition/:competition_id/ranking
 // 大会ごとのランキングを取得する
@@ -1395,26 +1387,6 @@ func competitionRankingHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "role player required")
 	}
 
-	competitionID := c.Param("competition_id")
-	if competitionID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "competition_id is required")
-	}
-
-	var rankAfter int64
-	rankAfterStr := c.QueryParam("rank_after")
-	if rankAfterStr != "" {
-		if rankAfter, err = strconv.ParseInt(rankAfterStr, 10, 64); err != nil {
-			return fmt.Errorf("error strconv.ParseUint: rankAfterStr=%s, %w", rankAfterStr, err)
-		}
-	}
-
-	key := getCompetitionRankingCacheKey(v.tenantID, competitionID)
-	if v, ok := competitionRankingCache[key]; ok {
-		if res, ok := v[rankAfter]; ok {
-			return c.JSON(http.StatusOK, res)
-		}
-	}
-
 	tenantDB, err := connectToTenantDB(v.tenantID)
 	if err != nil {
 		return err
@@ -1423,6 +1395,11 @@ func competitionRankingHandler(c echo.Context) error {
 
 	if err := authorizePlayer(ctx, tenantDB, v.playerID); err != nil {
 		return err
+	}
+
+	competitionID := c.Param("competition_id")
+	if competitionID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "competition_id is required")
 	}
 
 	// 大会の存在確認
@@ -1447,6 +1424,14 @@ func competitionRankingHandler(c echo.Context) error {
 			// log.Printf("error Insert visit_history: %s", err)
 		}
 	}(v.playerID, tenant.ID, competitionID)
+
+	var rankAfter int64
+	rankAfterStr := c.QueryParam("rank_after")
+	if rankAfterStr != "" {
+		if rankAfter, err = strconv.ParseInt(rankAfterStr, 10, 64); err != nil {
+			return fmt.Errorf("error strconv.ParseUint: rankAfterStr=%s, %w", rankAfterStr, err)
+		}
+	}
 
 	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
 	fl, err := flockByTenantID(v.tenantID)
@@ -1522,9 +1507,6 @@ func competitionRankingHandler(c echo.Context) error {
 			Ranks: pagedRanks,
 		},
 	}
-
-	competitionRankingCache[key][rankAfter] = res
-
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -1727,7 +1709,6 @@ func addIndexToTenantDB(db *sqlx.DB) {
 // ベンチマーカーが起動したときに最初に呼ぶ
 // データベースの初期化などが実行されるため、スキーマを変更した場合などは適宜改変すること
 func initializeHandler(c echo.Context) error {
-	competitionRankingCache = make(map[string]map[int64]SuccessResult)
 	out, err := exec.Command(initializeScript).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error exec.Command: %s %e", string(out), err)
