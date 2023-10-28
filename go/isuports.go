@@ -95,7 +95,7 @@ func connectToTenantDB(id int64) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open tenant DB: %w", err)
 	}
-	addIndexToTenantDB(db)
+	go addIndexToTenantDB(db)
 	return db, nil
 }
 
