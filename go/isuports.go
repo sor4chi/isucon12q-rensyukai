@@ -569,12 +569,6 @@ type VisitHistorySummaryRow struct {
 	MinCreatedAt int64  `db:"min_created_at"`
 }
 
-var visitHistoryCache = map[string][]VisitHistorySummaryRow{}
-
-func generateVHCKey(tenantID int64, competitionID string) string {
-	return fmt.Sprintf("%d:%s", tenantID, competitionID)
-}
-
 // 大会ごとの課金レポートを計算する
 func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string) (*BillingReport, error) {
 	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
@@ -584,20 +578,14 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 
 	// ランキングにアクセスした参加者のIDを取得する
 	vhs := []VisitHistorySummaryRow{}
-	key := generateVHCKey(tenantID, comp.ID)
-	if v, err := visitHistoryCache[key]; err {
-		vhs = v
-	} else {
-		if err := adminDB.SelectContext(
-			ctx,
-			&vhs,
-			"SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id",
-			tenantID,
-			comp.ID,
-		); err != nil && err != sql.ErrNoRows {
-			return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
-		}
-		visitHistoryCache[key] = vhs
+	if err := adminDB.SelectContext(
+		ctx,
+		&vhs,
+		"SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id",
+		tenantID,
+		comp.ID,
+	); err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
 	}
 	billingMap := map[string]string{}
 	for _, vh := range vhs {
@@ -1389,8 +1377,6 @@ func competitionRankingHandler(c echo.Context) error {
 		)
 	}
 
-	delete(visitHistoryCache, generateVHCKey(tenant.ID, competitionID))
-
 	var rankAfter int64
 	rankAfterStr := c.QueryParam("rank_after")
 	if rankAfterStr != "" {
@@ -1662,7 +1648,6 @@ type InitializeHandlerResult struct {
 // ベンチマーカーが起動したときに最初に呼ぶ
 // データベースの初期化などが実行されるため、スキーマを変更した場合などは適宜改変すること
 func initializeHandler(c echo.Context) error {
-	visitHistoryCache = map[string][]VisitHistorySummaryRow{}
 	out, err := exec.Command(initializeScript).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error exec.Command: %s %e", string(out), err)
