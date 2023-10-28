@@ -1428,13 +1428,9 @@ func competitionRankingHandler(c echo.Context) error {
 		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
 	}
 	ranks := make([]CompetitionRank, 0, len(pss))
-	scoredPlayerSet := make(map[string]struct{}, len(pss))
 	retrievePlayerRequestIds := make([]string, 0, len(pss))
 
 	for _, ps := range pss {
-		if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
-			continue
-		}
 		retrievePlayerRequestIds = append(retrievePlayerRequestIds, ps.PlayerID)
 	}
 	// use retrievePlayerBulk
@@ -1448,10 +1444,6 @@ func competitionRankingHandler(c echo.Context) error {
 	}
 
 	for _, ps := range pss {
-		if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
-			continue
-		}
-		scoredPlayerSet[ps.PlayerID] = struct{}{}
 		ranks = append(ranks, CompetitionRank{
 			Score:             ps.Score,
 			PlayerID:          playersMap[ps.PlayerID].ID,
