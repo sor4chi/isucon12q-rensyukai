@@ -108,30 +108,23 @@ func createTenantDB(id int64) error {
 	return nil
 }
 
-// システム全体で一意なIDを生成する
+type AtomicCounter struct {
+	mu  sync.Mutex
+	val int64
+}
+
+func (c *AtomicCounter) Inc() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.val++
+	return c.val
+}
+
+var atomicCounter = &AtomicCounter{}
+
+// AtomicCounterを使って高速にシステム全体で一意なIDを生成する
 func dispenseID(ctx context.Context) (string, error) {
-	var id int64
-	var lastErr error
-	for i := 0; i < 100; i++ {
-		var ret sql.Result
-		ret, err := adminDB.ExecContext(ctx, "REPLACE INTO id_generator (stub) VALUES (?);", "a")
-		if err != nil {
-			if merr, ok := err.(*mysql.MySQLError); ok && merr.Number == 1213 { // deadlock
-				lastErr = fmt.Errorf("error REPLACE INTO id_generator: %w", err)
-				continue
-			}
-			return "", fmt.Errorf("error REPLACE INTO id_generator: %w", err)
-		}
-		id, err = ret.LastInsertId()
-		if err != nil {
-			return "", fmt.Errorf("error ret.LastInsertId: %w", err)
-		}
-		break
-	}
-	if id != 0 {
-		return fmt.Sprintf("%x", id), nil
-	}
-	return "", lastErr
+	return strconv.FormatInt(atomicCounter.Inc(), 10), nil
 }
 
 // 全APIにCache-Control: privateを設定する
