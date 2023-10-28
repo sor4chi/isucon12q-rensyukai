@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/jellydator/ttlcache/v3"
 	"github.com/jmoiron/sqlx"
 	"github.com/kaz/pprotein/integration/echov4"
 	"github.com/labstack/echo/v4"
@@ -139,11 +138,6 @@ func SetCacheControlPrivate(next echo.HandlerFunc) echo.HandlerFunc {
 
 // Run は cmd/isuports/main.go から呼ばれるエントリーポイントです
 func Run() {
-	billingReportCache = ttlcache.New[string, BillingReport](
-		ttlcache.WithTTL[string, BillingReport](3 * time.Second),
-	)
-	go billingReportCache.Start()
-
 	e := echo.New()
 	e.Debug = true
 	e.Logger.SetLevel(log.DEBUG)
@@ -591,20 +585,8 @@ type VisitHistorySummaryRow struct {
 	MinCreatedAt int64  `db:"min_created_at"`
 }
 
-func getBillingReportCacheKey(tenantID int64, competitonID string) string {
-	return fmt.Sprintf("billing_report_%d_%s", tenantID, competitonID)
-}
-
-var billingReportCache *ttlcache.Cache[string, BillingReport]
-
 // 大会ごとの課金レポートを計算する
 func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string) (*BillingReport, error) {
-	key := getBillingReportCacheKey(tenantID, competitonID)
-	if ok := billingReportCache.Has(key); ok {
-		v := billingReportCache.Get(key).Value()
-		return &v, nil
-	}
-
 	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieveCompetition: %w", err)
@@ -664,8 +646,7 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 			}
 		}
 	}
-
-	res := BillingReport{
+	return &BillingReport{
 		CompetitionID:     comp.ID,
 		CompetitionTitle:  comp.Title,
 		PlayerCount:       playerCount,
@@ -673,10 +654,7 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 		BillingPlayerYen:  100 * playerCount, // スコアを登録した参加者は100円
 		BillingVisitorYen: 10 * visitorCount, // ランキングを閲覧だけした(スコアを登録していない)参加者は10円
 		BillingYen:        100*playerCount + 10*visitorCount,
-	}
-
-	billingReportCache.Set(key, res, ttlcache.DefaultTTL)
-	return &res, nil
+	}, nil
 }
 
 type TenantWithBilling struct {
@@ -1073,14 +1051,6 @@ func competitionFinishHandler(c echo.Context) error {
 			now, now, id, err,
 		)
 	}
-
-	go func(ctx context.Context, tenantDB *sqlx.DB, tenantID int64, id string) {
-		_, err := billingReportByCompetition(ctx, tenantDB, tenantID, id)
-		if err != nil {
-			log.Printf("error billingReportByCompetition: %s", err)
-		}
-	}(ctx, tenantDB, v.tenantID, id)
-
 	return c.JSON(http.StatusOK, SuccessResult{Status: true})
 }
 
@@ -1757,7 +1727,6 @@ func addIndexToTenantDB(db *sqlx.DB) {
 // ベンチマーカーが起動したときに最初に呼ぶ
 // データベースの初期化などが実行されるため、スキーマを変更した場合などは適宜改変すること
 func initializeHandler(c echo.Context) error {
-	billingReportCache.DeleteAll()
 	competitionRankingCache = make(map[string]map[int64]SuccessResult)
 	out, err := exec.Command(initializeScript).CombinedOutput()
 	if err != nil {
