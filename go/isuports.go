@@ -1714,14 +1714,24 @@ type InitializeHandlerResult struct {
 }
 
 func addIndexToTenantDB(db *sqlx.DB) {
-	if _, err := db.Exec("CREATE INDEX tenant_id_created_at_idx ON competition (tenant_id, created_at)"); err != nil {
-		log.Printf("error ALTER TABLE competition: %s", err)
-		return
-	}
-	if _, err := db.Exec("CREATE INDEX player_score_tenant_id_competition_id_player_id_row_num_idx ON player_score (tenant_id, competition_id, player_id, row_num DESC)"); err != nil {
-		log.Printf("error ALTER TABLE player_score: %s", err)
-		return
-	}
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		if _, err := db.Exec("CREATE INDEX tenant_id_created_at_idx ON competition (tenant_id, created_at)"); err != nil {
+			log.Printf("error ALTER TABLE competition: %s", err)
+			return
+		}
+		wg.Done()
+	}()
+	wg.Add(1)
+	go func() {
+		if _, err := db.Exec("CREATE INDEX player_score_tenant_id_competition_id_player_id_row_num_idx ON player_score (tenant_id, competition_id, player_id, row_num DESC)"); err != nil {
+			log.Printf("error ALTER TABLE player_score: %s", err)
+			return
+		}
+		wg.Done()
+	}()
+	wg.Wait()
 }
 
 // ベンチマーカー向けAPI
