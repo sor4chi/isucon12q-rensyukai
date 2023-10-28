@@ -21,6 +21,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/gofrs/flock"
 	"github.com/jmoiron/sqlx"
+	"github.com/kaz/pprotein/integration/echov4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
@@ -183,6 +184,8 @@ func Run() {
 	e.POST("/initialize", initializeHandler)
 
 	e.HTTPErrorHandler = errorResponseHandler
+
+	echov4.EnableDebugHandler(e)
 
 	adminDB, err = connectAdminDB()
 	if err != nil {
@@ -1613,6 +1616,13 @@ func initializeHandler(c echo.Context) error {
 	if err != nil {
 		return fmt.Errorf("error exec.Command: %s %e", string(out), err)
 	}
+
+	go func() {
+		if _, err := http.Get("http://localhost:9000/api/group/collect"); err != nil {
+			log.Printf("failed to communicate with pprotein: %v", err)
+		}
+	}()
+
 	res := InitializeHandlerResult{
 		Lang: "go",
 	}
