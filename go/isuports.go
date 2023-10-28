@@ -815,6 +815,15 @@ type PlayersAddHandlerResult struct {
 	Players []PlayerDetail `json:"players"`
 }
 
+type InsertPlayer struct {
+	ID             string
+	TenantID       int64
+	DisplayName    string
+	IsDisqualified bool
+	CreatedAt      int64
+	UpdatedAt      int64
+}
+
 // テナント管理者向けAPI
 // GET /api/organizer/players/add
 // テナントに参加者を追加する
@@ -840,27 +849,43 @@ func playersAddHandler(c echo.Context) error {
 	displayNames := params["display_name[]"]
 
 	pds := make([]PlayerDetail, 0, len(displayNames))
+	insertPlayers := make([]InsertPlayer, 0, len(displayNames))
+
 	for _, displayName := range displayNames {
 		id, err := dispenseID(ctx)
 		if err != nil {
 			return fmt.Errorf("error dispenseID: %w", err)
 		}
-
 		now := time.Now().Unix()
-		if _, err := tenantDB.ExecContext(
-			ctx,
-			"INSERT INTO player (id, tenant_id, display_name, is_disqualified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-			id, v.tenantID, displayName, false, now, now,
-		); err != nil {
-			return fmt.Errorf(
-				"error Insert player at tenantDB: id=%s, displayName=%s, isDisqualified=%t, createdAt=%d, updatedAt=%d, %w",
-				id, displayName, false, now, now, err,
-			)
+		insertPlayers = append(insertPlayers, InsertPlayer{
+			ID:             id,
+			TenantID:       v.tenantID,
+			DisplayName:    displayName,
+			IsDisqualified: false,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		})
+	}
+
+	// bulk insert
+	if len(insertPlayers) > 0 {
+		// build bulk insert query
+		var query strings.Builder
+		query.WriteString("INSERT INTO player (id, tenant_id, display_name, is_disqualified, created_at, updated_at) VALUES ")
+		args := make([]interface{}, 0, len(insertPlayers)*6)
+		for i, p := range insertPlayers {
+			if i != 0 {
+				query.WriteString(",")
+			}
+			query.WriteString("(?, ?, ?, ?, ?, ?)")
+			args = append(args, p.ID, p.TenantID, p.DisplayName, p.IsDisqualified, p.CreatedAt, p.UpdatedAt)
 		}
-		p, err := retrievePlayer(ctx, tenantDB, id)
-		if err != nil {
-			return fmt.Errorf("error retrievePlayer: %w", err)
+		if _, err := tenantDB.ExecContext(ctx, query.String(), args...); err != nil {
+			return fmt.Errorf("error Insert player: %w", err)
 		}
+	}
+
+	for _, p := range insertPlayers {
 		pds = append(pds, PlayerDetail{
 			ID:             p.ID,
 			DisplayName:    p.DisplayName,
