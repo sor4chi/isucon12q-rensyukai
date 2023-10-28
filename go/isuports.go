@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -75,6 +76,16 @@ func connectAdminDB() (*sqlx.DB, error) {
 func tenantDBPath(id int64) string {
 	tenantDBDir := getEnv("ISUCON_TENANT_DB_DIR", "../tenant_db")
 	return filepath.Join(tenantDBDir, fmt.Sprintf("%d.db", id))
+}
+
+// テナントDB全てのパスを返す
+func tenantDBPaths() ([]string, error) {
+	tenantDBDir := getEnv("ISUCON_TENANT_DB_DIR", "../tenant_db")
+	paths, err := filepath.Glob(filepath.Join(tenantDBDir, "*.db"))
+	if err != nil {
+		return nil, fmt.Errorf("error filepath.Glob: %w", err)
+	}
+	return paths, nil
 }
 
 // テナントDBに接続する
@@ -1616,6 +1627,34 @@ func initializeHandler(c echo.Context) error {
 	if err != nil {
 		return fmt.Errorf("error exec.Command: %s %e", string(out), err)
 	}
+
+	tenantDBs, err := tenantDBPaths()
+	if err != nil {
+		return fmt.Errorf("error tenantDBPaths: %w", err)
+	}
+
+	wg := sync.WaitGroup{}
+	println("start creating indexes", len(tenantDBs))
+	for _, tenantDB := range tenantDBs {
+		wg.Add(1)
+		go func(tenantDB string) {
+			defer wg.Done()
+			db, err := sqlx.Open("sqlite3", tenantDB)
+			if err != nil {
+				log.Printf("error sqlx.Open: %s", err)
+				return
+			}
+			defer db.Close()
+			if _, err := db.Exec("CREATE INDEX tenant_id_created_at_idx ON competition (tenant_id, created_at)"); err != nil {
+				log.Printf("error ALTER TABLE competition: %s", err)
+				return
+			}
+		}(tenantDB)
+	}
+
+	println("wait creating indexes")
+	wg.Wait()
+	println("finish creating indexes")
 
 	go func() {
 		if _, err := http.Get("http://localhost:9000/api/group/collect"); err != nil {
