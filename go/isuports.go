@@ -718,13 +718,21 @@ func tenantsBillingHandler(c echo.Context) error {
 			); err != nil {
 				return fmt.Errorf("failed to Select competition: %w", err)
 			}
+			wg := sync.WaitGroup{}
 			for _, comp := range cs {
-				report, err := billingReportByCompetition(ctx, tenantDB, t.ID, comp.ID)
-				if err != nil {
-					return fmt.Errorf("failed to billingReportByCompetition: %w", err)
-				}
-				tb.BillingYen += report.BillingYen
+				wg.Add(1)
+				go func(comp CompetitionRow) {
+					defer wg.Done()
+					report, err := billingReportByCompetition(ctx, tenantDB, t.ID, comp.ID)
+					if err != nil {
+						fmt.Printf("error billingReportByCompetition: %s\n", err.Error())
+						return
+					}
+					tb.BillingYen += report.BillingYen
+				}(comp)
 			}
+
+			wg.Wait()
 			tenantBillings = append(tenantBillings, tb)
 			return nil
 		}(t)
@@ -1186,13 +1194,21 @@ func billingHandler(c echo.Context) error {
 		return fmt.Errorf("error Select competition: %w", err)
 	}
 	tbrs := make([]BillingReport, 0, len(cs))
+	wg := sync.WaitGroup{}
 	for _, comp := range cs {
-		report, err := billingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID)
-		if err != nil {
-			return fmt.Errorf("error billingReportByCompetition: %w", err)
-		}
-		tbrs = append(tbrs, *report)
+		wg.Add(1)
+		go func(comp CompetitionRow) {
+			defer wg.Done()
+			report, err := billingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID)
+			if err != nil {
+				fmt.Errorf("error billingReportByCompetition: %w", err)
+				return
+			}
+			tbrs = append(tbrs, *report)
+		}(comp)
 	}
+
+	wg.Wait()
 
 	res := SuccessResult{
 		Status: true,
